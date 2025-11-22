@@ -52,51 +52,53 @@ class AutismDetector:
             self.create_model()
     
     def create_model(self):
-        """Create a CNN model for autism detection"""
+        """Create a model for autism detection using Transfer Learning (MobileNetV2)"""
+        try:
+            base_model = tf.keras.applications.MobileNetV2(
+                input_shape=(224, 224, 3),
+                include_top=False,
+                weights='imagenet'
+            )
+            
+            # Freeze base model layers
+            base_model.trainable = False
+            
+            self.model = keras.Sequential([
+                base_model,
+                layers.GlobalAveragePooling2D(),
+                layers.Dense(128, activation='relu'),
+                layers.Dropout(0.5),
+                layers.Dense(64, activation='relu'),
+                layers.Dropout(0.3),
+                layers.Dense(1, activation='sigmoid')
+            ])
+            
+            self.model.compile(
+                optimizer=keras.optimizers.Adam(learning_rate=0.001),
+                loss='binary_crossentropy',
+                metrics=['accuracy']
+            )
+            print("Created MobileNetV2 based model")
+            
+        except Exception as e:
+            print(f"Error creating MobileNetV2 model: {e}")
+            print("Falling back to simple CNN")
+            # Fallback to simple CNN if MobileNetV2 fails (e.g. no internet for weights)
+            self._create_simple_cnn()
+
+    def _create_simple_cnn(self):
+        """Fallback simple CNN"""
         self.model = keras.Sequential([
             layers.Input(shape=(224, 224, 3)),
-            
-            # Block 1
+            layers.Conv2D(32, (3, 3), activation='relu', padding='same'),
+            layers.MaxPooling2D((2, 2)),
             layers.Conv2D(64, (3, 3), activation='relu', padding='same'),
+            layers.MaxPooling2D((2, 2)),
             layers.Conv2D(64, (3, 3), activation='relu', padding='same'),
-            layers.BatchNormalization(),
             layers.MaxPooling2D((2, 2)),
-            layers.Dropout(0.25),
-            
-            # Block 2
-            layers.Conv2D(128, (3, 3), activation='relu', padding='same'),
-            layers.Conv2D(128, (3, 3), activation='relu', padding='same'),
-            layers.BatchNormalization(),
-            layers.MaxPooling2D((2, 2)),
-            layers.Dropout(0.25),
-            
-            # Block 3
-            layers.Conv2D(256, (3, 3), activation='relu', padding='same'),
-            layers.Conv2D(256, (3, 3), activation='relu', padding='same'),
-            layers.Conv2D(256, (3, 3), activation='relu', padding='same'),
-            layers.BatchNormalization(),
-            layers.MaxPooling2D((2, 2)),
-            layers.Dropout(0.25),
-            
-            # Block 4
-            layers.Conv2D(512, (3, 3), activation='relu', padding='same'),
-            layers.Conv2D(512, (3, 3), activation='relu', padding='same'),
-            layers.Conv2D(512, (3, 3), activation='relu', padding='same'),
-            layers.BatchNormalization(),
-            layers.MaxPooling2D((2, 2)),
-            layers.Dropout(0.25),
-            
-            # Flatten and Dense
             layers.Flatten(),
-            layers.Dense(512, activation='relu'),
-            layers.BatchNormalization(),
-            layers.Dropout(0.5),
-            layers.Dense(256, activation='relu'),
-            layers.BatchNormalization(),
-            layers.Dropout(0.5),
-            layers.Dense(128, activation='relu'),
-            layers.Dropout(0.3),
-            layers.Dense(1, activation='sigmoid')  # Binary classification
+            layers.Dense(64, activation='relu'),
+            layers.Dense(1, activation='sigmoid')
         ])
         
         self.model.compile(
@@ -131,8 +133,11 @@ class AutismDetector:
         # Resize to model input size
         image_resized = cv2.resize(image_array, (224, 224))
         
-        # Normalize pixel values
-        image_normalized = image_resized.astype('float32') / 255.0
+        # Preprocess for MobileNetV2 (expects values in [-1, 1])
+        # tf.keras.applications.mobilenet_v2.preprocess_input does this
+        # But to avoid dependency on tf in this method if possible, we can do it manually
+        # MobileNetV2 preprocessing: (x / 127.5) - 1
+        image_normalized = (image_resized.astype('float32') / 127.5) - 1.0
         
         return image_normalized
     
