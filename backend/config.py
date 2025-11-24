@@ -27,6 +27,9 @@ class Config:
     # ML Model
     MODEL_PATH = os.getenv('MODEL_PATH', 'ml_model/autism_model.h5')
     
+    # AI Chatbot Configuration (Google Gemini)
+    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+    
     # Logging
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 
@@ -51,9 +54,6 @@ class ProductionConfig(Config):
         'DATABASE_URL',
         'postgresql://user:password@localhost/autism_detection'
     )
-    # Ensure JWT secret is set in production
-    if not os.getenv('JWT_SECRET_KEY'):
-        raise ValueError('JWT_SECRET_KEY environment variable must be set in production')
 
 # Get configuration based on environment
 config = {
@@ -67,4 +67,12 @@ def get_config(env=None):
     """Get configuration object"""
     if env is None:
         env = os.getenv('FLASK_ENV', 'development')
-    return config.get(env, config['default'])
+    
+    config_class = config.get(env, config['default'])
+    
+    # Validate production configuration only when it's actually selected
+    if config_class == ProductionConfig:
+        if not os.getenv('JWT_SECRET_KEY'):
+            raise ValueError('JWT_SECRET_KEY environment variable must be set in production')
+    
+    return config_class

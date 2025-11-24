@@ -81,3 +81,12 @@ logs/
 tmp/
 temp/
 *.tmp
+
+# Test outputs (keep test files, ignore outputs)
+tests/__pycache__/
+tests/*.pyc
+*.test.log
+
+# Script outputs
+scripts/__pycache__/
+scripts/*.pyc
