@@ -16,11 +16,11 @@ def load_images_from_folder(folder_path, img_size=(224, 224)):
     Load images from folder
     
     Expected folder structure:
-    datasets/
-    ├── positive/
+    dataset/
+    ├── autistic/
     │   ├── image1.jpg
     │   └── image2.jpg
-    └── negative/
+    └── non_autistic/
         ├── image1.jpg
         └── image2.jpg
     """
@@ -31,35 +31,55 @@ def load_images_from_folder(folder_path, img_size=(224, 224)):
         print(f"Folder not found: {folder_path}")
         return None, None
     
-    # Load positive samples (autism indicators)
-    positive_path = os.path.join(folder_path, 'positive')
-    if os.path.exists(positive_path):
-        for filename in os.listdir(positive_path):
-            if filename.endswith(('.jpg', '.jpeg', '.png')):
-                try:
-                    img = cv2.imread(os.path.join(positive_path, filename))
-                    if img is not None:
-                        img = cv2.resize(img, img_size)
-                        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                        images.append(img)
-                        labels.append(1)  # Positive
-                except Exception as e:
-                    print(f"Error loading {filename}: {e}")
+    print(f"Scanning dataset at: {folder_path}")
     
-    # Load negative samples (no autism indicators)
-    negative_path = os.path.join(folder_path, 'negative')
-    if os.path.exists(negative_path):
-        for filename in os.listdir(negative_path):
-            if filename.endswith(('.jpg', '.jpeg', '.png')):
+    # Load autistic samples (positive class = 1)
+    autistic_path = os.path.join(folder_path, 'autistic')
+    if os.path.exists(autistic_path):
+        print(f"Loading autistic samples from {autistic_path}...")
+        count = 0
+        for filename in os.listdir(autistic_path):
+            if filename.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
                 try:
-                    img = cv2.imread(os.path.join(negative_path, filename))
+                    img_path = os.path.join(autistic_path, filename)
+                    img = cv2.imread(img_path)
                     if img is not None:
                         img = cv2.resize(img, img_size)
                         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                         images.append(img)
-                        labels.append(0)  # Negative
+                        labels.append(1)  # Autistic
+                        count += 1
+                    else:
+                        print(f"Warning: Could not read image {filename}")
                 except Exception as e:
                     print(f"Error loading {filename}: {e}")
+        print(f"Loaded {count} autistic samples")
+    else:
+        print(f"Warning: 'autistic' folder not found in {folder_path}")
+    
+    # Load non_autistic samples (negative class = 0)
+    non_autistic_path = os.path.join(folder_path, 'non_autistic')
+    if os.path.exists(non_autistic_path):
+        print(f"Loading non_autistic samples from {non_autistic_path}...")
+        count = 0
+        for filename in os.listdir(non_autistic_path):
+            if filename.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
+                try:
+                    img_path = os.path.join(non_autistic_path, filename)
+                    img = cv2.imread(img_path)
+                    if img is not None:
+                        img = cv2.resize(img, img_size)
+                        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                        images.append(img)
+                        labels.append(0)  # Non-Autistic
+                        count += 1
+                    else:
+                        print(f"Warning: Could not read image {filename}")
+                except Exception as e:
+                    print(f"Error loading {filename}: {e}")
+        print(f"Loaded {count} non_autistic samples")
+    else:
+        print(f"Warning: 'non_autistic' folder not found in {folder_path}")
     
     if len(images) == 0:
         print("No images found in dataset!")
@@ -68,10 +88,11 @@ def load_images_from_folder(folder_path, img_size=(224, 224)):
     return np.array(images), np.array(labels)
 
 def preprocess_images(images):
-    """Normalize image pixel values"""
-    return images.astype('float32') / 255.0
+    """Normalize image pixel values for MobileNetV2"""
+    # MobileNetV2 expects inputs in range [-1, 1]
+    return (images.astype('float32') / 127.5) - 1.0
 
-def create_dataset(dataset_path='datasets', test_size=0.2, val_size=0.1):
+def create_dataset(dataset_path='../dataset', test_size=0.2, val_size=0.1):
     """
     Create training, validation, and test datasets
     
@@ -79,27 +100,34 @@ def create_dataset(dataset_path='datasets', test_size=0.2, val_size=0.1):
     X_train, X_val, X_test, y_train, y_val, y_test = create_dataset()
     """
     
-    print("Loading images...")
+    # Handle absolute path or relative path
+    if not os.path.isabs(dataset_path):
+        # Assuming script is in ml_model/, dataset is in root/dataset
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        dataset_path = os.path.join(base_dir, 'dataset')
+    
+    print(f"Loading images from {dataset_path}...")
     X, y = load_images_from_folder(dataset_path)
     
     if X is None:
         print("Failed to load images. Please ensure dataset structure is correct:")
-        print("datasets/")
-        print("├── positive/")
-        print("│   └── [images showing autism indicators]")
-        print("└── negative/")
-        print("    └── [images without autism indicators]")
+        print("dataset/")
+        print("├── autistic/")
+        print("│   └── [images]")
+        print("└── non_autistic/")
+        print("    └── [images]")
         return None
     
-    print(f"Loaded {len(X)} images")
-    print(f"Positive samples: {np.sum(y)}")
-    print(f"Negative samples: {len(y) - np.sum(y)}")
+    print(f"Total loaded: {len(X)} images")
+    print(f"Autistic samples: {np.sum(y)}")
+    print(f"Non-autistic samples: {len(y) - np.sum(y)}")
     
     # Preprocess images
     print("Preprocessing images...")
     X = preprocess_images(X)
     
     # Split into train+val and test
+    print("Splitting dataset...")
     X_temp, X_test, y_temp, y_test = train_test_split(
         X, y, test_size=test_size, random_state=42, stratify=y
     )
@@ -121,6 +149,7 @@ def train_model_script():
     """Script to train the model"""
     
     import sys
+    # Add current directory to path to import autism_detector
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from autism_detector import AutismDetector
     
@@ -138,11 +167,20 @@ def train_model_script():
     
     # Train model
     print("Training model...")
-    history = detector.train(
+    # Use early stopping to prevent overfitting
+    early_stopping = keras.callbacks.EarlyStopping(
+        monitor='val_loss',
+        patience=10,
+        restore_best_weights=True
+    )
+    
+    history = detector.model.fit(
         X_train, y_train,
-        X_val, y_val,
+        validation_data=(X_val, y_val),
         epochs=50,
-        batch_size=32
+        batch_size=32,
+        callbacks=[early_stopping],
+        verbose=1
     )
     
     # Evaluate on test set
@@ -152,32 +190,33 @@ def train_model_script():
     print(f"Test Loss: {test_loss:.4f}")
     
     # Save training history
-    with open('ml_model/training_history.pkl', 'wb') as f:
+    history_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'training_history.pkl')
+    with open(history_path, 'wb') as f:
         pickle.dump(history.history, f)
     
     print("\nModel training complete!")
-    print(f"Model saved to: {detector.model_path}")
+    # Ensure model is saved
+    detector.save_model()
 
 if __name__ == '__main__':
     print("=" * 50)
-    print("Autism Detection Model - Data Preprocessing")
+    print("Autism Detection Model - Training Pipeline")
     print("=" * 50)
     
-    # Check if dataset exists
-    if not os.path.exists('datasets'):
-        print("\n⚠️  Dataset folder not found!")
-        print("\nTo train the model, create the following structure:")
-        print("  datasets/")
-        print("  ├── positive/")
-        print("  │   └── [images of children showing autism indicators]")
-        print("  └── negative/")
-        print("      └── [images of children without autism indicators]")
-        print("\nPlace high-quality, labeled images in these folders.")
-    else:
-        # Try to load and train
+    # Try to load and train
+    try:
+        # Check for TensorFlow/Keras
         try:
-            train_model_script()
-        except Exception as e:
-            print(f"Error during training: {e}")
-            import traceback
-            traceback.print_exc()
+            import tensorflow as tf
+            from tensorflow import keras
+            print(f"TensorFlow version: {tf.__version__}")
+            gpus = tf.config.list_physical_devices('GPU')
+            print(f"GPUs available: {len(gpus)}")
+        except ImportError:
+            print("Warning: TensorFlow not found or import error.")
+            
+        train_model_script()
+    except Exception as e:
+        print(f"Error during training: {e}")
+        import traceback
+        traceback.print_exc()

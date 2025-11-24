@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
+dataset/
 build/
 develop-eggs/
 dist/
