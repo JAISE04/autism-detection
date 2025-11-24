@@ -13,7 +13,31 @@ export default function AnalysisPage() {
   const [error, setError] = useState("");
   const [showSaveForm, setShowSaveForm] = useState(false);
   const [childData, setChildData] = useState({ childId: "", name: "" });
+  const [children, setChildren] = useState([]);
   const [dragActive, setDragActive] = useState(false);
+
+  // Fetch children when user wants to save
+  const fetchChildren = async () => {
+    if (!token) return;
+    try {
+      const response = await fetch("http://localhost:5000/api/children", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setChildren(data.children);
+      }
+    } catch (err) {
+      console.error("Failed to fetch children:", err);
+    }
+  };
+
+  const toggleSaveForm = () => {
+    if (!showSaveForm) {
+      fetchChildren();
+    }
+    setShowSaveForm(!showSaveForm);
+  };
 
   const processImage = (file) => {
     if (file && file.type.startsWith("image/")) {
@@ -310,7 +334,7 @@ export default function AnalysisPage() {
 
               {isAuthenticated && (
                 <button
-                  onClick={() => setShowSaveForm(!showSaveForm)}
+                  onClick={toggleSaveForm}
                   style={styles.saveButton}
                 >
                   {showSaveForm ? "Cancel" : "Save Assessment"}
@@ -320,27 +344,50 @@ export default function AnalysisPage() {
               {showSaveForm && (
                 <div style={styles.saveForm}>
                   <h3>Save Assessment</h3>
-                  <div style={styles.formGroup}>
-                    <label>Child Name</label>
-                    <input
-                      type="text"
-                      value={childData.name}
-                      onChange={(e) =>
-                        setChildData((prev) => ({
-                          ...prev,
-                          name: e.target.value,
-                        }))
-                      }
-                      placeholder="Enter child's name"
-                      style={styles.input}
-                    />
-                  </div>
-                  <button
-                    onClick={handleSaveAssessment}
-                    style={styles.confirmButton}
-                  >
-                    Save
-                  </button>
+                  {children.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "20px" }}>
+                      <p>You need to add a child profile first.</p>
+                      <button
+                        onClick={() => navigate("/dashboard")}
+                        style={styles.saveButton}
+                      >
+                        Go to Dashboard
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={styles.formGroup}>
+                        <label>Select Child</label>
+                        <select
+                          value={childData.childId}
+                          onChange={(e) => {
+                            const selectedChild = children.find(
+                              (c) => c.id === parseInt(e.target.value)
+                            );
+                            setChildData({
+                              childId: e.target.value,
+                              name: selectedChild ? selectedChild.name : "",
+                            });
+                          }}
+                          style={styles.input}
+                        >
+                          <option value="">-- Select a child --</option>
+                          {children.map((child) => (
+                            <option key={child.id} value={child.id}>
+                              {child.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
+                        onClick={handleSaveAssessment}
+                        style={styles.confirmButton}
+                        disabled={!childData.childId}
+                      >
+                        Save to Profile
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
