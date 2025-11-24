@@ -1,9 +1,10 @@
-import React, { useContext } from "react";
+import React, { useContext, useEffect } from "react";
 import {
   BrowserRouter as Router,
   Routes,
   Route,
   Navigate,
+  useLocation,
 } from "react-router-dom";
 import AuthContext, { AuthProvider } from "./context/AuthContext";
 
@@ -19,6 +20,18 @@ import ChatPage from "./pages/ChatPage";
 // Components
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
+import Chatbot from "./components/Chatbot";
+
+// Scroll to top component
+function ScrollToTop() {
+  const location = useLocation();
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
+  return null;
+}
 
 function AppContent() {
   const { isAuthenticated } = useContext(AuthContext);
@@ -27,6 +40,7 @@ function AppContent() {
     <div
       style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}
     >
+      <ScrollToTop />
       <Navbar />
       <main style={{ flex: 1 }}>
         <Routes>
@@ -63,6 +77,7 @@ function AppContent() {
         </Routes>
       </main>
       <Footer />
+      <Chatbot />
     </div>
   );
 }

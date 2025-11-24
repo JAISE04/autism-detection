@@ -1,7 +1,6 @@
 import os
 import sys
 import json
-from datetime import timedelta
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
@@ -15,21 +14,24 @@ import tensorflow as tf
 import io
 import base64
 
+# Import configuration
+from config import get_config
+from utils import allowed_file, get_safe_filename
+from ai_chatbot import AIChatbot
+
 # Add parent directory to path so we can import ml_model
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ml_model.autism_detector import AutismDetector
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)
 
-# Configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///autism_detection.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['JWT_SECRET_KEY'] = 'your-secret-key-change-in-production'
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=30)
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
-app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
+# Load configuration from config.py
+config_obj = get_config()
+app.config.from_object(config_obj)
+
+# Configure CORS with origins from config
+CORS(app, origins=config_obj.CORS_ORIGINS)
 
 # Create upload folder if it doesn't exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -40,6 +42,14 @@ jwt = JWTManager(app)
 
 # Initialize ML model
 autism_detector = AutismDetector()
+
+# Initialize AI Chatbot (Google Gemini)
+gemini_api_key = config_obj.GEMINI_API_KEY
+if not gemini_api_key:
+    print("⚠ WARNING: GEMINI_API_KEY not set. Chatbot will not work.")
+    print("  Get your API key from: https://makersuite.google.com/app/apikey")
+    print("  Add it to your .env file: GEMINI_API_KEY=your-key-here")
+ai_chatbot = AIChatbot(api_key=gemini_api_key) if gemini_api_key else None
 
 # ============== DATABASE MODELS ==============
 
@@ -93,6 +103,32 @@ class ChatMessage(db.Model):
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
     user = db.relationship('User', backref='chat_messages')
 
+# ============== ROOT ROUTE ==============
+
+@app.route('/', methods=['GET'])
+def root():
+    return jsonify({
+        'message': 'Autism Detection Platform API',
+        'status': 'running',
+        'version': '1.0.0',
+        'endpoints': {
+            'health': '/api/health',
+            'register': '/api/auth/register',
+            'login': '/api/auth/login',
+            'analyze': '/api/analyze',
+            'chat': '/api/chat',
+            'chat_history': '/api/chat/history',
+            'chat_suggestions': '/api/chat/suggestions'
+        }
+    }), 200
+
+@app.route('/api/health', methods=['GET'])
+def health():
+    return jsonify({
+        'status': 'healthy',
+        'service': 'Autism Detection Platform API'
+    }), 200
+
 # ============== AUTHENTICATION ROUTES ==============
 
 @app.route('/api/auth/register', methods=['POST'])
@@ -116,7 +152,7 @@ def register():
         db.session.add(user)
         db.session.commit()
         
-        access_token = create_access_token(identity=user.id)
+        access_token = create_access_token(identity=str(user.id))
         
         return jsonify({
             'message': 'Registration successful',
@@ -145,7 +181,7 @@ def login():
         if not user or not user.check_password(data['password']):
             return jsonify({'error': 'Invalid email or password'}), 401
         
-        access_token = create_access_token(identity=user.id)
+        access_token = create_access_token(identity=str(user.id))
         
         return jsonify({
             'message': 'Login successful',
@@ -164,7 +200,7 @@ def login():
 @jwt_required()
 def get_profile():
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if not user:
@@ -194,6 +230,10 @@ def analyze_image():
         if file.filename == '':
             return jsonify({'error': 'No image selected'}), 400
         
+        # Validate file extension
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'Invalid file type. Allowed: jpg, jpeg, png, gif, bmp'}), 400
+        
         # Read and process image
         image = Image.open(file.stream).convert('RGB')
         image_array = np.array(image)
@@ -219,7 +259,7 @@ def analyze_image():
 @jwt_required()
 def add_child():
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         data = request.get_json()
         
         if not data or not data.get('name'):
@@ -253,7 +293,7 @@ def add_child():
 @jwt_required()
 def get_children():
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         children = Child.query.filter_by(parent_id=user_id).all()
         
         return jsonify({
@@ -378,7 +418,7 @@ def get_assessments(child_id):
 @jwt_required()
 def chat():
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         data = request.get_json()
         
         if not data or not data.get('message'):
@@ -386,8 +426,15 @@ def chat():
         
         user_message = data['message']
         
-        # Simple chatbot response logic
-        chatbot_response = generate_chatbot_response(user_message)
+        # Check if AI chatbot is configured
+        if not ai_chatbot:
+            return jsonify({
+                'error': 'Chatbot is not configured. Please set GEMINI_API_KEY in your .env file.',
+                'setup_url': 'https://makersuite.google.com/app/apikey'
+            }), 503
+        
+        # Generate AI response using Gemini
+        chatbot_response = ai_chatbot.generate_response(user_message)
         
         # Save chat message
         chat_msg = ChatMessage(
@@ -428,40 +475,73 @@ def get_chat_history():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# ============== HELPER FUNCTIONS ==============
-
-def generate_chatbot_response(user_message):
-    """Generate chatbot response based on user message"""
+@app.route('/api/chat/suggestions', methods=['GET'])
+def get_chat_suggestions():
+    """Get suggested questions for chatbot"""
+    try:
+        suggestions = [
+            {
+                'id': 1,
+                'question': 'What are the early signs of autism?',
+                'category': 'diagnosis',
+                'icon': '🔍'
+            },
+            {
+                'id': 2,
+                'question': 'How can I support my child with autism?',
+                'category': 'support',
+                'icon': '❤️'
+            },
+            {
+                'id': 3,
+                'question': 'What therapies are available for autism?',
+                'category': 'therapy',
+                'icon': '🏥'
+            },
+            {
+                'id': 4,
+                'question': 'When should I seek professional help?',
+                'category': 'guidance',
+                'icon': '👨‍⚕️'
+            },
+            {
+                'id': 5,
+                'question': 'How does facial expression analysis work?',
+                'category': 'technology',
+                'icon': '🤖'
+            },
+            {
+                'id': 6,
+                'question': 'What is the importance of early intervention?',
+                'category': 'intervention',
+                'icon': '⏰'
+            },
+            {
+                'id': 7,
+                'question': 'How do I track my child\'s progress?',
+                'category': 'tracking',
+                'icon': '📊'
+            },
+            {
+                'id': 8,
+                'question': 'What should I do if I notice signs of autism?',
+                'category': 'action',
+                'icon': '🚨'
+            }
+        ]
+        
+        # Optional: filter by category if provided
+        category = request.args.get('category')
+        if category:
+            suggestions = [s for s in suggestions if s['category'] == category]
+        
+        return jsonify({
+            'suggestions': suggestions,
+            'count': len(suggestions)
+        }), 200
     
-    message_lower = user_message.lower()
-    
-    # Autism information responses
-    if 'autism' in message_lower and 'what is' in message_lower:
-        return "Autism Spectrum Disorder (ASD) is a developmental condition characterized by differences in social communication, interaction, and behavior. Early identification and intervention can significantly improve outcomes. Our system helps detect potential signs through facial expression analysis."
-    
-    elif 'sign' in message_lower and ('autism' in message_lower or 'asd' in message_lower):
-        return "Common early signs of autism include: limited eye contact, challenges with social interaction, repetitive behaviors, sensory sensitivities, and differences in facial expression patterns. If you notice these in your child, consider a professional evaluation."
-    
-    elif 'early' in message_lower and 'intervention' in message_lower:
-        return "Early intervention is crucial for children with autism. Therapies like ABA (Applied Behavior Analysis), speech therapy, and occupational therapy can help develop skills. The earlier intervention starts, the better the outcomes."
-    
-    elif 'facial' in message_lower and 'expression' in message_lower:
-        return "Facial expressions play a key role in social communication. Children with autism may show different patterns in expression recognition and production. Our AI analyzes these patterns to assist in early identification."
-    
-    elif 'progres' in message_lower and 'track' in message_lower:
-        return "You can track your child's progress through regular assessments. Keep detailed notes about observations and milestones. Our platform helps you maintain records and identify patterns over time."
-    
-    elif 'help' in message_lower or 'support' in message_lower:
-        return "We're here to support you. You can: 1) Use our diagnosis tool regularly, 2) Keep detailed notes on observations, 3) Track progress over time, 4) Consult with professionals, and 5) Join support communities. Remember, you're not alone in this journey."
-    
-    elif 'emergency' in message_lower:
-        return "If your child is in immediate distress or danger, please contact emergency services (911 in the US). For crisis support, consider contacting the National Suicide Prevention Lifeline or Autism Speaks."
-    
-    elif 'school' in message_lower or 'education' in message_lower:
-        return "Educational support for children with autism may include IEPs (Individualized Education Programs), classroom accommodations, and specialized services. Work with your school to develop appropriate support plans."
-    
-    else:
-        return "I'm here to help you understand and support your child. I can provide information about autism, early intervention, progress tracking, and coping strategies. What would you like to know more about?"
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # ============== ERROR HANDLERS ==============
 
