@@ -96,6 +96,9 @@ export default function AnalysisPage() {
 
       const response = await fetch("http://localhost:5000/api/analyze", {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
         body: formData,
       });
 

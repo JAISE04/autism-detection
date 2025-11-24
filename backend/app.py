@@ -220,6 +220,7 @@ def get_profile():
 # ============== ANALYSIS ROUTES ==============
 
 @app.route('/api/analyze', methods=['POST'])
+@jwt_required()
 def analyze_image():
     try:
         if 'image' not in request.files:

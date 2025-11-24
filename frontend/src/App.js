@@ -57,7 +57,12 @@ function AppContent() {
               !isAuthenticated ? <RegisterPage /> : <Navigate to="/dashboard" />
             }
           />
-          <Route path="/analyze" element={<AnalysisPage />} />
+          <Route
+            path="/analyze"
+            element={
+              isAuthenticated ? <AnalysisPage /> : <Navigate to="/login" />
+            }
+          />
           <Route
             path="/dashboard"
             element={
