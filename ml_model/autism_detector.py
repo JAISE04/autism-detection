@@ -49,6 +49,13 @@ class AutismDetector:
         self.face_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         )
+        # Initialize additional cascades for better detection
+        self.face_cascade_alt = cv2.CascadeClassifier(
+            cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml'
+        )
+        self.profile_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + 'haarcascade_profileface.xml'
+        )
         self.eye_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + 'haarcascade_eye.xml'
         )
@@ -317,9 +324,44 @@ class AutismDetector:
         return image_normalized
     
     def detect_faces(self, image_array):
-        """Detect faces in the image"""
-        gray = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
-        faces = self.face_cascade.detectMultiScale(gray, 1.3, 5)
+        """Detect faces in the image with improved sensitivity"""
+        # Convert to grayscale
+        if len(image_array.shape) == 3:
+            gray = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = image_array
+            
+        # Enhance contrast (Histogram Equalization)
+        # This helps significantly with poor lighting
+        gray = cv2.equalizeHist(gray)
+        
+        # Strategy 1: Standard Frontal Face (More sensitive settings)
+        # scaleFactor=1.1 (checks more scales), minNeighbors=3 (less strict)
+        faces = self.face_cascade.detectMultiScale(
+            gray, 
+            scaleFactor=1.1, 
+            minNeighbors=3,
+            minSize=(30, 30)
+        )
+        
+        # Strategy 2: Alternative Frontal Face (if no faces found)
+        if len(faces) == 0:
+            faces = self.face_cascade_alt.detectMultiScale(
+                gray,
+                scaleFactor=1.1,
+                minNeighbors=3,
+                minSize=(30, 30)
+            )
+            
+        # Strategy 3: Profile Face (Side view) (if still no faces found)
+        if len(faces) == 0:
+            faces = self.profile_cascade.detectMultiScale(
+                gray,
+                scaleFactor=1.1,
+                minNeighbors=3,
+                minSize=(30, 30)
+            )
+            
         return faces
     
     def detect_eyes(self, image_array, face_region):
@@ -689,8 +731,35 @@ class AutismDetector:
             # Detect faces
             faces = self.detect_faces(image_array)
             
+            # Check if any face is detected
+            if len(faces) == 0:
+                return {
+                    'score': 0.0,
+                    'status': 'no_face_detected',
+                    'confidence': 0.0,
+                    'features': {
+                        'face_count': 0,
+                        'eye_contact': 0.0,
+                        'face_symmetry': 0.0,
+                        'expression_intensity': 0.0,
+                        'head_position': 'unknown'
+                    },
+                    'recommendations': ["No face detected in the image. Please upload an image with a clear view of the face."]
+                }
+            
             # Extract facial features
             features = self.extract_facial_features(image_array, faces)
+            
+            # Check if eyes were detected (eye_contact > 0)
+            # If eye_contact is 0.0, it means no eyes were found
+            if features.get('eye_contact', 0.0) < 0.1:
+                return {
+                    'score': 0.0,
+                    'status': 'no_face_detected',
+                    'confidence': 0.0,
+                    'features': features,
+                    'recommendations': ["Face detected but eyes not visible. Please upload an image where the eyes are clearly visible."]
+                }
             
             # Preprocess image for model
             processed_image = self.preprocess_image(image_array)

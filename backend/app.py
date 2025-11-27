@@ -242,6 +242,12 @@ def analyze_image():
         # Detect faces and analyze
         result = autism_detector.predict(image_array)
         
+        if result['status'] == 'no_face_detected':
+            return jsonify({
+                'error': 'No face detected in the image',
+                'recommendations': result['recommendations']
+            }), 400
+        
         return jsonify({
             'success': True,
             'autism_score': float(result['score']),
