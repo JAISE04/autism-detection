@@ -244,7 +244,7 @@ def analyze_image():
         
         if result['status'] == 'no_face_detected':
             return jsonify({
-                'error': 'No face detected in the image',
+                'error': 'Make Sure the face is clearly visible with eyes open in the image.',
                 'recommendations': result['recommendations']
             }), 400
         
